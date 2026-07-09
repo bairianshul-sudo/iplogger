@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Cloud IP Logger</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f5f7fa;
+    padding: 40px;
+    text-align: center;
+  }
+  .card {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    width: 400px;
+    margin: 0 auto;
+  }
+  input {
+    width: 90%;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+  }
+  button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    border: none;
+    background: #4a6cf7;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  #ipBox {
+    margin-top: 35px;
+    padding: 25px;
+    background: #eef2ff;
+    border-radius: 12px;
+    width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    text-align: left;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  th, td {
+    border-bottom: 1px solid #ddd;
+    padding: 6px;
+  }
+  th {
+    background: #dde3ff;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>Tracking Link Generator</h2>
+
+<div class="card">
+  <input id="url" type="text" placeholder="Destination URL">
+  <input id="slug" type="text" placeholder="Custom ID (optional)">
+  <button onclick="makeLink()">Generate Link</button>
+
+  <p id="output"></p>
+</div>
+
+<div id="ipBox">
+  <h3>Logged IPs (Cloud)</h3>
+  <div id="ipTableContainer">Loading...</div>
+</div>
+
+<!-- Firebase CDN scripts -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<script>
+// -------------------------------
+// FIREBASE CONFIG (FIXED)
+// -------------------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyCh05Jp95UGx2UZiJhjMjiZ6LZAl7908eM",
+  authDomain: "ip-logger-27238.firebaseapp.com",
+  databaseURL: "https://ip-logger-27238-default-rtdb.firebaseio.com",
+  projectId: "ip-logger-27238",
+  storageBucket: "ip-logger-27238.appspot.com",   // ⭐ FIXED ⭐
+  messagingSenderId: "691731801990",
+  appId: "1:691731801990:web:e91f751d7ea72a9ba46e07",
+  measurementId: "G-HFK1GMT07P"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// -------------------------------
+// READ TRACKING ID FROM URL
+// -------------------------------
+const params = new URLSearchParams(window.location.search);
+const id = params.get("track");
+
+// -------------------------------
+// IF TRACKING LINK OPENED: LOG IP + REDIRECT
+// -------------------------------
+if (id) {
+  db.ref("links/" + id).once("value").then(snap => {
+    const data = snap.val();
+    if (!data || !data.url) return;
+
+    const destination = data.url;
+
+    fetch("https://api.ipify.org/?format=json")
+      .then(res => res.json())
+      .then(ipData => {
+        const ip = ipData.ip;
+        const info = getDeviceInfo();
+        const time = new Date().toLocaleString();
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        db.ref("logs").push({
+          ip,
+          device: info.device,
+          browser: info.browser,
+          os: info.os,
+          time,
+          timezone,
+          linkId: id,
+          destination
+        });
+
+        setTimeout(() => {
+          window.location.href = destination;
+        }, 1500);
+      });
+  });
+}
+
+// -------------------------------
+// DEVICE INFO
+// -------------------------------
+function getDeviceInfo() {
+  const ua = navigator.userAgent;
+  return {
+    device: /Mobile|Android|iPhone|iPad/.test(ua) ? "Mobile" : "Desktop",
+    browser: ua.includes("Chrome") ? "Chrome" :
+             ua.includes("Safari") ? "Safari" :
+             ua.includes("Firefox") ? "Firefox" :
+             ua.includes("Edg") ? "Edge" : "Unknown",
+    os: ua.includes("Windows") ? "Windows" :
+        ua.includes("Mac") ? "MacOS" :
+        ua.includes("Android") ? "Android" :
+        ua.includes("iPhone") || ua.includes("iPad") ? "iOS" : "Unknown"
+  };
+}
+
+// -------------------------------
+// LINK GENERATOR
+// -------------------------------
+function makeLink() {
+  const realURL = document.getElementById("url").value.trim();
+  let slug = document.getElementById("slug").value.trim();
+
+  if (!realURL) {
+    alert("Enter a destination URL.");
+    return;
+  }
+
+  if (!slug) {
+    slug = "id_" + Math.random().toString(36).substring(2, 8);
+  }
+
+  db.ref("links/" + slug).set({ url: realURL });
+
+  const link = window.location.href.split("?")[0] + "?track=" + slug;
+
+  document.getElementById("output").innerHTML =
+    "Your tracking link:<br><a href='" + link + "'>" + link + "</a>";
+}
+
+// -------------------------------
+// ALWAYS DISPLAY ALL LOGGED IPS
+// -------------------------------
+db.ref("logs").on("value", snap => {
+  const logs = snap.val();
+  if (!logs) {
+    document.getElementById("ipTableContainer").innerHTML = "No logs yet.";
+    return;
+  }
+
+  let html = "<table><tr><th>IP</th><th>Device</th><th>Browser</th><th>OS</th><th>Time</th><th>Timezone</th><th>Link ID</th></tr>";
+  Object.keys(logs).reverse().forEach(key => {
+    const l = logs[key];
+    html += `<tr>
+      <td>${l.ip}</td>
+      <td>${l.device}</td>
+      <td>${l.browser}</td>
+      <td>${l.os}</td>
+      <td>${l.time}</td>
+      <td>${l.timezone}</td>
+      <td>${l.linkId}</td>
+    </tr>`;
+  });
+  html += "</table>";
+
+  document.getElementById("ipTableContainer").innerHTML = html;
+});
+</script>
+
+</body>
+</html>
