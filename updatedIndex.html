@@ -2,14 +2,14 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>IP Logger + URL Shortener</title>
+<title>IP Logger + Multi URL Shortener</title>
 
 <style>
   body { font-family: Arial; background: #f5f7fa; padding: 40px; text-align: center; }
-  .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 400px; margin: 0 auto; }
-  input { width: 90%; padding: 10px; margin-top: 10px; border-radius: 8px; border: 1px solid #ccc; }
+  .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 450px; margin: 0 auto; }
+  input, select { width: 90%; padding: 10px; margin-top: 10px; border-radius: 8px; border: 1px solid #ccc; }
   button { margin-top: 15px; padding: 10px 20px; border: none; background: #4a6cf7; color: white; border-radius: 8px; cursor: pointer; font-size: 16px; }
-  #ipBox { margin-top: 35px; padding: 25px; background: #eef2ff; border-radius: 12px; width: 600px; margin-left: auto; margin-right: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: left; }
+  #ipBox { margin-top: 35px; padding: 25px; background: #eef2ff; border-radius: 12px; width: 700px; margin-left: auto; margin-right: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: left; }
   table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
   th, td { border-bottom: 1px solid #ddd; padding: 6px; }
   th { background: #dde3ff; }
@@ -18,11 +18,19 @@
 
 <body>
 
-<h2>Tracking Link Generator + URL Shortener</h2>
+<h2>Tracking Link Generator + Multi URL Shortener</h2>
 
 <div class="card">
   <input id="url" type="text" placeholder="Destination URL">
   <input id="slug" type="text" placeholder="Custom ID (optional)">
+
+  <select id="shortener">
+    <option value="tinyurl">TinyURL</option>
+    <option value="isgd">is.gd</option>
+    <option value="vgd">v.gd</option>
+    <option value="tly">T.LY (requires API key)</option>
+  </select>
+
   <button onclick="makeLink()">Generate Link</button>
 
   <p id="output"></p>
@@ -53,20 +61,6 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-
-// -------------------------------
-// URL SHORTENER REDIRECT HANDLER
-// -------------------------------
-const path = window.location.pathname;
-
-if (path.startsWith("/iplogger/s/")) {
-  const shortId = path.split("/iplogger/s/")[1];
-
-  db.ref("shortlinks/" + shortId).once("value").then(snap => {
-    const fullLink = snap.val();
-    if (fullLink) window.location.href = fullLink;
-  });
-}
 
 // -------------------------------
 // TRACKING LINK HANDLER
@@ -126,11 +120,12 @@ function getDeviceInfo() {
 }
 
 // -------------------------------
-// LINK GENERATOR + SHORTENER
+// MULTI URL SHORTENER
 // -------------------------------
-function makeLink() {
+async function makeLink() {
   const realURL = document.getElementById("url").value.trim();
   let slug = document.getElementById("slug").value.trim();
+  const shortener = document.getElementById("shortener").value;
 
   if (!realURL) {
     alert("Enter a destination URL.");
@@ -141,18 +136,57 @@ function makeLink() {
     slug = "id_" + Math.random().toString(36).substring(2, 8);
   }
 
+  // Save destination URL in Firebase
   db.ref("links/" + slug).set({ url: realURL });
 
+  // Full tracking link
   const fullTrackingLink = window.location.origin + "/iplogger/?track=" + slug;
 
-  const shortId = Math.random().toString(36).substring(2, 7);
+  let shortLink = "";
 
-  db.ref("shortlinks/" + shortId).set(fullTrackingLink);
+  // -----------------------------
+  // SHORTENER OPTIONS
+  // -----------------------------
+  if (shortener === "tinyurl") {
+    shortLink = await fetch(
+      "https://tinyurl.com/api-create.php?url=" + encodeURIComponent(fullTrackingLink)
+    ).then(res => res.text());
+  }
 
-  const shortLink = window.location.origin + "/iplogger/s/" + shortId;
+  else if (shortener === "isgd") {
+    shortLink = await fetch(
+      "https://is.gd/create.php?format=simple&url=" + encodeURIComponent(fullTrackingLink)
+    ).then(res => res.text());
+  }
 
+  else if (shortener === "vgd") {
+    shortLink = await fetch(
+      "https://v.gd/create.php?format=simple&url=" + encodeURIComponent(fullTrackingLink)
+    ).then(res => res.text());
+  }
+
+  else if (shortener === "tly") {
+    const apiKey = "YOUR_TLY_API_KEY"; // optional
+    const response = await fetch("https://t.ly/api/v1/link/shorten", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": apiKey
+      },
+      body: JSON.stringify({
+        long_url: fullTrackingLink,
+        domain: "https://t.ly/"
+      })
+    }).then(res => res.json());
+
+    shortLink = response.short_url;
+  }
+
+  // -----------------------------
+  // DISPLAY RESULTS
+  // -----------------------------
   document.getElementById("output").innerHTML =
-    "Short Link:<br><a href='" + shortLink + "'>" + shortLink + "</a><br><br>" +
+    "Shortened Link (" + shortener + "):<br><a href='" + shortLink + "'>" + shortLink + "</a><br><br>" +
     "Full Tracking Link:<br><a href='" + fullTrackingLink + "'>" + fullTrackingLink + "</a>";
 }
 
